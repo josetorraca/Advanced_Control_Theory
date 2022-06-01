@@ -31,6 +31,10 @@ K_1 = k10 * exp((-E1)/((T_R+273.15)))
 K_2 =  k20 * exp((-E2)/((T_R+273.15)))
 K_3 = k30 * exp((-E3)/((T_R+273.15)))
 
+#Arge Initial State
+Cain = 5.1 #(mol/L)
+Tin = 135 #(°C)
+
 # States
 Ca = MX.sym('C_A',1) #yield of A (mol/L)
 Cb = MX.sym('C_B',1) #yield of B (mol/L)
