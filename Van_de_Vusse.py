@@ -43,20 +43,20 @@ y = vertcat(Ca, Cb, T)
 
 # Inputs
 f = MX.sym('F/V',1) #spacial velocity (h-1)
-Tk = MX. sym('T_k',1) #jacket temperature (C)
+Tk = MX. sym('Q_k/Kw*Ar',1) #jacket temperature (C)
 u = vertcat(f, Tk)
 
-# Disturances
+# Disturbances
 Cain = MX.sym('C_Ain',1) #inlet yield of A
 Tin = MX.sym('T_in',1)  #inlet temperature
 d = vertcat(Cain, Tin)
 
 # ODE system
-dx1 = f*(Cain - Ca) - Ca*k10*exp(-E1/(T + 273.15)) - Ca**2*k30*exp(-E3/(T + 273.15))
-dx2 = -f*Cb + Ca*k10*exp(-E1/(T + 273.15)) - Cb*k20*exp(-E2/(T + 273.15))
-dx3 = f*(Tin - T) + (Kw*Ar*(Tk - T)/V + (Ca*(-deltaH1)*k10*exp(-E1/(T + 273.15))) \
-+ (Cb*(-deltaH2)*k20*exp(-E2/(T + 273.15))) + (Ca**2*(-deltaH3)*k30*exp(-E3/(T + 273.15))))/(rho*cp)
-dx = vertcat(dx1, dx2, dx3)
+dx1 = f*(Cain - Ca) - K_1*Ca - K_3*(Ca**2)
+dx2 = -f*Cb + K_1*Ca - K_2*Cb
+dx3 = f*(Tin - T) + (K_1*Ca*(-deltaH1) + K_2*Cb*(-deltaH2) + K_3*(Ca**2)*(-deltaH3))/(rho*cp) + (Kw*Ar*(Tk - T))/(rho*cp*V)
+dx4 = Q_k + Kw*Ar*(T - Tk)/(m_k*Cp_k)
+dx = vertcat(dx1, dx2, dx3, dx4)
 
 # Cost function
 J = - (Cb/(Cain-Ca) + Cb/Cain - 0.06*Tk/100)
