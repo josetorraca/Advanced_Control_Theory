@@ -59,7 +59,7 @@ d = vertcat(Cain, Tin)
 dx1 = f*(Cain - Ca) - K_1*Ca - K_3*(Ca**2)
 dx2 = -f*Cb + K_1*Ca - K_2*Cb
 dx3 = f*(Tin - T) + (K_1*Ca*(-deltaH1) + K_2*Cb*(-deltaH2) + K_3*(Ca**2)*(-deltaH3))/(rho*cp) + (Kw*Ar*(Tk - T))/(rho*cp*V)
-dx4 = Q_k + Kw*Ar*(T - Tk)/(m_k*Cp_k)
+dx4 = (Q_k + Kw*Ar*(T - Tk))/(m_k*Cp_k)
 dx = vertcat(dx1, dx2, dx3, dx4)
 
 # Cost function
