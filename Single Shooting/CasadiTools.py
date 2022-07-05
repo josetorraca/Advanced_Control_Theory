@@ -7,7 +7,7 @@ class ODEModel:
     This class creates an ODE model using casadi symbolic framework
     """
 
-    def __init__(self, dt, x, dx, J, y=None, u=None, d=None, p=None):
+    def __init__(self, dt, x, dx, J=None, y=None, u=None, d=None, p=None):
         self.dt = dt  # sampling
         self.x = x  # states (sym)
         self.y = MX.sym('y', 0) if y is None else y  # outputs (sym)
@@ -16,7 +16,7 @@ class ODEModel:
         self.p = MX.sym('p', 0) if p is None else p  # parameters (sym)
         self.dx = dx  # model equations
         self.J = J  # cost function
-        self.theta = vertcat(self.d, self.p)  # parameters to be estimated vector (sym)
+        #self.theta = vertcat(self.d, self.p)  # parameters to be estimated vector (sym)
 
     def get_equations(self, intg='idas'):
         """
@@ -25,40 +25,47 @@ class ODEModel:
 
         self.ode = {
             'x': self.x,
-            'p': vertcat(self.u, self.theta),
-            'ode': self.dx, 'quad': self.J
+            'p': vertcat(self.u, self.d, self.p),
+            'ode': self.dx, 
+            'quad': self.J
         }  # ODE model
-        self.F = Function('F', [self.x, self.u, self.theta], [self.dx, self.J, self.y],
-                          ['x', 'u', 'theta'], ['dx', 'J', 'y'])  # model function
+
+        self.F = Function('F', [self.x, self.u, self.d, self.p], [self.dx, self.J, self.y],
+                          ['x', 'u', 'd', 'p'], ['dx', 'J', 'y'])  # model function
         self.rfsolver = rootfinder('rfsolver', 'newton', self.F)  # rootfinder
         self.opts = {'tf': self.dt}  # sampling time
         self.Plant = integrator('F', intg, self.ode, self.opts)  # integrator
 
-    def steady(self, xguess=None, uf=None, thetaf=None):
+    def steady(self, xguess=None, uf=None, df=None, pf=None):
         """
         Calculates root
         """
 
         xguess = np.zeros(self.x.shape[0]) if xguess is None else xguess
         uf = [] if uf is None else uf
-        thetaf = [] if thetaf is None else thetaf
-        sol = self.rfsolver(x=xguess, u=uf, theta=thetaf)
+        df = [] if df is None else df
+        pf = [] if pf is None else pf
+        sol = self.rfsolver(x=xguess, u=uf, d=df, p=pf)
         return {
             'x': sol['y'].full(),
             'J': sol['J'].full()
         }
 
-    def simulate_step(self, xf, uf=None, thetaf=None):
+    def simulate_step(self, xf, uf=None, df=None, pf=None):
         """
         Simulates 1 step
         """
 
         uf = [] if uf is None else uf
-        thetaf = [] if thetaf is None else thetaf
-        Fk = self.Plant(x0=xf, p=vertcat(uf, thetaf))  # integration
+        df = [] if df is None else df
+        pf = [] if pf is None else pf
+        Fk = self.Plant(x0=xf, p=vertcat(uf, df, pf))  # integration
+
         return {
             'x': Fk['xf'].full().reshape(-1),
-            'u': uf, 'theta': thetaf
+            'u': uf, 
+            'd': df,
+            'p': pf
         }
 
     def check_steady(self, nss, t, cov, ysim):
@@ -80,7 +87,7 @@ class ODEModel:
             'S2': S2
         }
 
-    def buil_dnlp_steady(self, xguess=None, uguess=None, lbx=None, ubx=None,
+    def build_nlp_steady(self, xguess=None, uguess=None, lbx=None, ubx=None,
                          lbu=None, ubu=None, opts={}):
         """
         Builds steady-state optimization NLP
@@ -124,7 +131,7 @@ class ODEModel:
 
         nlp = {
             'x': vertcat(*self.w),
-            'p': self.theta,
+            'p': vertcat(self.d, self.p),
             'f': self.J,
             'g': vertcat(*self.g)
         }
@@ -132,13 +139,13 @@ class ODEModel:
         # Solver
         self.solver = nlpsol('solver', 'ipopt', nlp, opts)
 
-    def optimize_steady(self, ksim=None, thetaf=[]):
+    def optimize_steady(self, ksim=None, df=[], pf=[]):
         """
-        Performs 1 optimization step (thetaf must be lists)
+        Performs 1 optimization step (df and pf must be lists)
         """
 
         # Solver run
-        sol = self.solver(x0=vertcat(*self.w0), p=thetaf,
+        sol = self.solver(x0=vertcat(*self.w0), p=p=vertcat(df+pf),
                           lbx=vertcat(*self.lbw), ubx=vertcat(*self.ubw),
                           lbg=vertcat(*self.lbg), ubg=vertcat(*self.ubg))
         flag = self.solver.stats()
@@ -176,10 +183,10 @@ class ODEModel:
         # Guesses and bounds
         xguess = np.zeros(self.x.shape[0]) if xguess is None else xguess
         uguess = np.zeros(self.u.shape[0]) if uguess is None else uguess
-        lbx = -inf * np.ones(self.x.shape[0]) if lbx is None else lbx
-        lbu = -inf * np.ones(self.u.shape[0]) if lbu is None else lbu
-        ubx = +inf * np.ones(self.x.shape[0]) if ubx is None else ubx
-        ubu = +inf * np.ones(self.u.shape[0]) if ubu is None else ubu
+        lbx = -inf*np.ones(self.x.shape[0]) if lbx is None else lbx
+        lbu = -inf*np.ones(self.u.shape[0]) if lbu is None else lbu
+        ubx = +inf*np.ones(self.x.shape[0]) if ubx is None else ubx
+        ubu = +inf*np.ones(self.u.shape[0]) if ubu is None else ubu
 
         # Removing Nones inside vectors
         if None in xguess: xguess = np.array([0 if v is None else v for v in xguess])
@@ -262,7 +269,7 @@ class ODEModel:
                 xc = self.Ldot[0, i + 1] * xk  # expression for the state derivative at the collocation poin
                 for j in range(0, m):
                     xc += self.Ldot[j + 1, i + 1] * xki[j]
-                fi = self.F(xki[i], uk, self.theta)  # model and cost function
+                fi = self.F(xki[i], uk, self.d, self.p)  # model and cost function
                 self.g += [self.dt * fi[0] - xc]  # model equality contraints reformulated
                 self.lbg += list(np.zeros(self.x.shape[0]))
                 self.ubg += list(np.zeros(self.x.shape[0]))
@@ -287,19 +294,19 @@ class ODEModel:
             'x': vertcat(*self.w),
             'f': self.J,
             'g': vertcat(*self.g),
-            'p': vertcat(x0_sym, self.theta)
+            'p': vertcat(x0_sym, self.d, self.p)
         }
 
         # Solver
         self.solver = nlpsol('solver', 'ipopt', self.nlp, opts)  # nlp solver construction
 
-    def optimize_dyn(self, xf, thetaf=[], ksim=None):
+    def optimize_dyn(self, xf, df=[], pf=[], ksim=None):
         """
         Performs 1 optimization step 
         """
 
         # Solver run
-        sol = self.solver(x0=vertcat(*self.w0), p=vertcat(xf, thetaf),
+        sol = self.solver(x0=vertcat(*self.w0), p=vertcat(xf, df, pf),
                           lbx=vertcat(*self.lbw), ubx=vertcat(*self.ubw),
                           lbg=vertcat(*self.lbg), ubg=vertcat(*self.ubg))
         flag = self.solver.stats()
@@ -470,7 +477,7 @@ class NMPC:
     This class creates an NMPC using casadi symbolic framework
     """
 
-    def __init__(self, dt, N, M, Q, R, W, x, u, c, dx, theta, xguess=None,
+    def __init__(self, dt, N, M, Q, R, W, x, u, c, d, p, dx, xguess=None,
                  uguess=None, lbx=None, ubx=None, lbu=None, ubu=None, lbdu=None,
                  ubdu=None, m=3, pol='legendre', tgt=False, DRTO=False, opts={'disc': 'collocation'}):
         self.opts = opts
@@ -479,7 +486,8 @@ class NMPC:
         self.x = x
         self.c = c
         self.u = u
-        self.theta = theta
+        self.d = d
+        self.p = p
         self.m = m
         self.pol = pol
         self.N = N
@@ -517,10 +525,9 @@ class NMPC:
         self.uprev = MX.sym('u_prev', self.u.shape[0])
         J = (self.c - self.sp).T @ Q @ (self.c - self.sp) + (self.u - self.target).T \
             @ R @ (self.u - self.target) + (self.u - self.uprev).T @ W @ (self.u - self.uprev)
-        self.F = Function('F', [self.x, self.u, self.theta, self.sp, self.target,
-                                self.uprev], [self.dx, J], ['x', 'u', 'theta',
-                                                            'sp', 'target', 'u_prev'],
-                          ['dx', 'J'])  # NMPC model function
+        self.F = Function('F', [self.x, self.u, self.d, self.p, self.sp, self.target,
+                                self.uprev], [self.dx, J], ['x', 'u', 'd', 'p',
+                                'sp', 'target', 'u_prev'], ['dx', 'J'])  # NMPC model function
 
         # Check if the setpoints and targets are trajectories
         if not DRTO:
@@ -609,9 +616,9 @@ class NMPC:
                     for j in range(0, m):
                         xc += self.Ldot[j + 1, i + 1] * xki[j]
                     if not DRTO:  # check if the setpoints and targets are trajectories
-                        fi = self.F(xki[i], uk, self.theta, spk, targetk, uk_prev)
+                        fi = self.F(xki[i], uk, self.d,self.p, spk, targetk, uk_prev)
                     else:
-                        fi = self.F(xki[i], uk, self.theta, vertcat(spk[k], spk[k + N + 1]),
+                        fi = self.F(xki[i], uk, self.d, self.p, vertcat(spk[k], spk[k + N + 1]),
                                     vertcat(targetk[k], targetk[k + N]), uk_prev)
                     self.g += [self.dt * fi[0] - xc]  # model equality contraints reformulated
                     self.lbg += [np.zeros(self.x.shape[0])]
@@ -653,7 +660,7 @@ class NMPC:
                     self.ubg += list(ubdu)
 
                 # Integrate till the end of the interval
-                fi = self.F(xi, uk, self.theta, spk, targetk, uk_prev)
+                fi = self.F(xi, uk, self.d, self.p, spk, targetk, uk_prev)
                 xi = fi['xf']
                 self.J += fi['qf']
 
@@ -670,19 +677,19 @@ class NMPC:
             'x': vertcat(*self.w),
             'f': self.J,
             'g': vertcat(*self.g),
-            'p': vertcat(x0_sym, u0_sym, self.theta, spk, targetk)
+            'p': vertcat(x0_sym, u0_sym, self.d, self.p, spk, targetk)
         }  # nlp construction
 
         # Solver
         self.solver = nlpsol('solver', 'ipopt', self.nlp, opts)  # nlp solver construction
 
-    def calc_control_actions(self, x0, u0, sp, target=[], theta0=[], ksim=None):
+    def calc_actions(self, x0, u0, sp, target=[], d0=[], p0=[], ksim=None):
         """
         Performs 1 optimization step for the NMPC 
         """
 
         # Solver run
-        sol = self.solver(x0=vertcat(*self.w0), p=vertcat(x0, u0, theta0, sp, target),
+        sol = self.solver(x0=vertcat(*self.w0), p=vertcat(x0, u0, d0, p0, sp, target),
                           lbx=vertcat(*self.lbw), ubx=vertcat(*self.ubw),
                           lbg=vertcat(*self.lbg), ubg=vertcat(*self.ubg))
         flag = self.solver.stats()
