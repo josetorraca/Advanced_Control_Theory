@@ -145,7 +145,7 @@ class ODEModel:
         """
 
         # Solver run
-        sol = self.solver(x0=vertcat(*self.w0), p=p=vertcat(df+pf),
+        sol = self.solver(x0=vertcat(*self.w0), p=vertcat(df+pf),
                           lbx=vertcat(*self.lbw), ubx=vertcat(*self.ubw),
                           lbg=vertcat(*self.lbg), ubg=vertcat(*self.ubg))
         flag = self.solver.stats()
