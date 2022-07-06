@@ -187,12 +187,12 @@ Additionally, we add a penalty on input changes for both control inputs, to obta
 """
 
 _x = model.x
-mterm = (_x['C_b'] - 0.6)**2 # terminal cost
-lterm = (_x['T_R'] - 135)**2 # stage cost
+mterm = (_x['C_b'] - 0.6)**2 # terminal cost # set-point tracking
+lterm = (_x['T_R'] - 135)**2 # stage cost # set-point tracking
 
 mpc.set_objective(mterm=mterm, lterm=lterm)
 
-mpc.set_rterm(F=0.1, Q_dot = 1e-3) # input penalty
+mpc.set_rterm(F=0.1, Q_dot = 1e-3) # input penalty # Scaling for quad. cost.
 
 """### Constraints
 
@@ -271,8 +271,8 @@ Alternatively, we are able to set a user defined measurement function that is ca
 """
 
 setup_mhe = {
-    't_step': 0.005,
-    'n_horizon': 20,
+    't_step': 0.1,
+    'n_horizon': 10,
     'store_full_solution': True,
     'meas_from_data': True
 }
@@ -310,6 +310,11 @@ P_x = np.eye(4) # 4 states
 P_p = 6*np.eye(3) #6 inputs: 4 states + 2 control
 
 mhe.set_default_objective(P_x, P_v, P_p)
+
+mhe.scaling['_x', 'T_R'] = 100
+mhe.scaling['_x', 'T_K'] = 100
+mhe.scaling['_u', 'Q_dot'] = 2000
+mhe.scaling['_u', 'F'] = 100
 
 """### Bounds
 The MHE implementation also supports bounds for states, inputs, parameters which can be set as shown below.
@@ -382,7 +387,7 @@ params_simulator = {
     'integration_tool': 'cvodes',
     'abstol': 1e-10,
     'reltol': 1e-10,
-    't_step': 0.005
+    't_step': 0.1
 }
 
 simulator.set_param(**params_simulator)
@@ -419,13 +424,28 @@ C_a_0 = 0.8 # This is the initial concentration inside the tank [mol/l]
 C_b_0 = 0.5 # This is the controlled variable [mol/l]
 T_R_0 = 134.14 #[C]
 T_K_0 = 130.0 #[C]
+
 x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
 
 mpc.x0 = x0
 simulator.x0 = x0
 mhe.x0 = x0
 
+mhe.p_est0 = np.array([1, 1, 1])
+
+# Set the initial input of mpc, simulator and estimator:
+F_0 = 10 # This is the initial inlet flow rate [l/h]
+Q_dot_0 = -1 # This is the heat removed [kW]
+
+u0 = np.array([F_0, Q_dot_0]).reshape(-1,1)
+
+mpc.u0 = u0
+simulator.u0 = u0
+mhe.u0 = u0
+
+
 mpc.set_initial_guess()
+
 mhe.set_initial_guess()
 
 """Now, we simulate the closed-loop for 50 steps (and suppress the output of the cell with the magic command `%%capture`):"""
@@ -434,7 +454,8 @@ mhe.set_initial_guess()
 # %%capture
 # for k in range(50):
 #     u0 = mpc.make_step(x0)
-#     y_next = simulator.make_step(u0)
+#     v0 = 0.1*np.random.randn(model.n_v,1) # measurement noise
+#     y_next = simulator.make_step(u0, v0=v0)
 #     x0 = mhe.make_step(y_next)
 
 """## Animating the results
@@ -454,17 +475,18 @@ rcParams['font.size'] = 18
 
 # Commented out IPython magic to ensure Python compatibility.
 # %%capture
-# fig, ax = plt.subplots(5, sharex=True, figsize=(16,12))
+# fig, ax = plt.subplots(6, sharex=True, figsize=(16,12))
 # # Configure plot:
-# mpc_graphics.add_line(var_type='_x', var_name='C_a', axis=ax[0], color='#2ca02c') # green
-# mpc_graphics.add_line(var_type='_x', var_name='C_b', axis=ax[1], color='#2ca02c')
-# mpc_graphics.add_line(var_type='_x', var_name='T_R', axis=ax[2], color='#2ca02c')
-# mpc_graphics.add_line(var_type='_u', var_name='T_K', axis=ax[2], color='#ff7f0e') # orange
+# mpc_graphics.add_line(var_type='_x', var_name='C_a', axis=ax[0], color='#FF00FF') # magenta
+# mpc_graphics.add_line(var_type='_x', var_name='C_b', axis=ax[1], color='#2ca02c') # green CONTROL
+# mpc_graphics.add_line(var_type='_x', var_name='T_R', axis=ax[2], color='#2ca02c') # green CONTROL
+# mpc_graphics.add_line(var_type='_x', var_name='T_K', axis=ax[2], color='#DC143C') # crimson
 # mpc_graphics.add_line(var_type='_aux', var_name='T_dif', axis=ax[3])
-# mpc_graphics.add_line(var_type='_u', var_name='F', axis=ax[4], color='#ff7f0e')
-# ax[0].set_ylabel('$C(mol/L)$')
+# mpc_graphics.add_line(var_type='_u', var_name='F', axis=ax[4], color='#ff7f0e') # orange INPUT
+# mpc_graphics.add_line(var_type='_u', var_name='Q_dot', axis=ax[5], color='#ff7f0e') # orange INPUT
+# ax[0].set_ylabel('$C_{A}(mol/L)$')
 # ax[0].set_xlabel('time [h]')
-# ax[1].set_ylabel('$C(mol/L)$')
+# ax[1].set_ylabel('$C_{B}(mol/L)$')
 # ax[1].set_xlabel('time [h]')
 # ax[2].set_ylabel('$T(°C)$')
 # ax[2].set_xlabel('time [h]')
@@ -472,6 +494,8 @@ rcParams['font.size'] = 18
 # ax[3].set_xlabel('time [h]')
 # ax[4].set_ylabel('$F(L/h)$')
 # ax[4].set_xlabel('time [h]')
+# ax[5].set_ylabel('$\dot{Q}(kW)$')
+# ax[5].set_xlabel('time [h]')
 #
 
 """Some "cosmetic" modifications are easily achieved with the structure ``pred_lines`` and ``result_lines``."""
@@ -494,12 +518,14 @@ label_lines = mpc_graphics.result_lines['_x', 'C_a']
 ax[0].legend(label_lines, ['Reactor Concentration of A, $C_{A}$'])
 label_lines = mpc_graphics.result_lines['_x', 'C_b']
 ax[1].legend(label_lines, ['Reactor Concentration of B, $C_{B}$'])
-label_lines = mpc_graphics.result_lines['_x', 'T_R']+mpc_graphics.result_lines['_u', 'T_K']
+label_lines = mpc_graphics.result_lines['_x', 'T_R']+mpc_graphics.result_lines['_x', 'T_K']
 ax[2].legend(label_lines, ['Reactor Temperature, $T_{R}$', 'Jacket Temperature, $T_{K}$'])
 label_lines = mpc_graphics.result_lines['_aux', 'T_dif']
 ax[3].legend(label_lines, ['$T_{R}-T_{K}$'])
 label_lines = mpc_graphics.result_lines['_u', 'F']
 ax[4].legend(label_lines, ['Inlet Flow, $F$'])
+label_lines = mpc_graphics.result_lines['_u', 'Q_dot']
+ax[5].legend(label_lines, ['Heat Removed, $\dot{Q}$'])
 
 # Make all predictions transparent:
 for line_i in mpc_graphics.pred_lines.full: line_i.set_alpha(0.2)
