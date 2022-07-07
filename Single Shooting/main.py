@@ -61,6 +61,7 @@ ubd = [ubCain, ubTin]
 N = 40
 M = 10
 Q = np.diag([1, 1e-3])
+R = np.diag([1, 1])
 W = np.diag([1e-5, 1e-8])
 lbdf = -50
 ubdf = 50
