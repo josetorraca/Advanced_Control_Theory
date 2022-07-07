@@ -4,6 +4,7 @@ from CasadiTools import *
 from progress.bar import IncrementalBar
 import matplotlib.pyplot as plt
 import time
+import math
 
 # Process
 process = ODEModel(dt=dt, x=x, y=y, u=u, dx=dx, d=d, p=p) #process object
@@ -49,9 +50,6 @@ ubu = [ubf, ubQk]
 lbd = [lbCain, lbTin]
 ubd = [ubCain, ubTin]
 
-process.buildnlp_steady(xguess=xguess, uguess=uguess, lbx=lbx, ubx=ubx, lbu=lbu, 
-                        ubu=ubu, opts=opts) 
-
 # AEKF
 #P0 = np.diag([1e3, 1e3, 1e3, 1e3, 1e3])
 #Q = np.diag([3e-2, 5e-2, 1e1, 1e1, 1e2])*1e-4
@@ -63,7 +61,6 @@ process.buildnlp_steady(xguess=xguess, uguess=uguess, lbx=lbx, ubx=ubx, lbu=lbu,
 N = 40
 M = 10
 Q = np.diag([1, 1e-3])
-R = np.diag([0, 0])
 W = np.diag([1e-5, 1e-8])
 lbdf = -50
 ubdf = 50
@@ -71,11 +68,11 @@ lbdQk = -10000
 ubdQk = 10000
 lbdu = [lbdf, lbdQk]
 ubdu = [ubdf, ubdQk]
-opts ={'disc': 'single_shooting'}
+opts = {'disc': 'single_shooting'}
 
 nmpc = NMPC(dt=dt, N=N, M=M, Q=Q, R=R, W=W, x=x, u=u, c=c, d=d, p=p, dx=dx,
        xguess=xguess, uguess=uguess, lbx=lbx, ubx=ubx, lbu=lbu, ubu=ubu, 
-       lbdu=lbdu, ubdu=ubdu, tgt=True, opts=opts)
+       lbdu=lbdu, ubdu=ubdu, disc='single_shooting')
 
 # Initialization
 t = 1 #counter
@@ -87,13 +84,12 @@ uf = [120.04167236,  50000]
 dist = [4, 130]
 par_model = [1.287e12, 2]
 par_plant = [1.287e12*.95, 2*0.8]
+spsim = [1, 1]
 xhat = copy.deepcopy(xf)
 dhat = copy.deepcopy(dist[0])
 phat = copy.deepcopy(par_model)
 ysim = np.zeros([niter, 4])
 usim = np.zeros([niter, 2])
-spsim = np.zeros([niter, 2])
-#targetsim = np.zeros([niter, 2])
 dsim = np.zeros([niter, 2])
 psim = np.zeros([niter, 2])
 xest = np.zeros([niter, 4])
@@ -124,7 +120,6 @@ for ksim in range(0, niter):
     usim[t-1, :] = sim['u']
     dsim[t-1, :] = sim['d']
     psim[t-1, :] = sim['p']
-    spsim[t-1, :] = spsim
 
     # AEKF
     #est = aekf.updatestate(xkhat=vertcat(xhat, dhat), uf=uf, ymeas=ymeas)
@@ -135,8 +130,8 @@ for ksim in range(0, niter):
 
     # NMPC
     ctrl = nmpc.calc_actions(ksim=ksim+1, x0=xhat, u0=uf, sp=spsim,
-                             d0=dhat, p0=phat)
-    uf = ctrl['U']
+                             d0=[dhat, dist[1]], p0=phat)
+    uf = ctrl['uin']
 
     t += 1
     end = time.time()

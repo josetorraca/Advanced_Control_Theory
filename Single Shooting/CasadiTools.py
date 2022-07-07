@@ -14,8 +14,8 @@ class ODEModel:
         self.u = MX.sym('u', 0) if u is None else u  # inputs (sym)
         self.d = MX.sym('d', 0) if d is None else d  # disturbances (sym)
         self.p = MX.sym('p', 0) if p is None else p  # parameters (sym)
+        self.J = MX.sym('J', 0) if J is None else p  # cost function
         self.dx = dx  # model equations
-        self.J = J  # cost function
         #self.theta = vertcat(self.d, self.p)  # parameters to be estimated vector (sym)
 
     def get_equations(self, intg='idas'):
@@ -477,10 +477,11 @@ class NMPC:
     This class creates an NMPC using casadi symbolic framework
     """
 
-    def __init__(self, dt, N, M, Q, R, W, x, u, c, d, p, dx, xguess=None,
+    def __init__(self, dt, N, M, Q, W, x, u, c, d, p, dx, R=None, xguess=None,
                  uguess=None, lbx=None, ubx=None, lbu=None, ubu=None, lbdu=None,
-                 ubdu=None, m=3, pol='legendre', tgt=False, DRTO=False, opts={'disc': 'collocation'}):
-        self.opts = opts
+                 ubdu=None, tgt=False, disc='collocation', m=3, pol='legendre', 
+                 DRTO=False, solver_opts={}):
+
         self.dt = dt
         self.dx = dx
         self.x = x
@@ -488,16 +489,16 @@ class NMPC:
         self.u = u
         self.d = d
         self.p = p
-        self.m = m
-        self.pol = pol
         self.N = N
         self.M = M
-        if tgt:  # evaluates tracking target inputs
-            self.R = R
-        else:
-            self.R = np.zeros((self.u.shape[0], self.u.shape[0]))
+        self.disc = disc
+        self.m = m
+        self.pol = pol
         self.Q = Q
         self.W = W
+
+        # Target matrix R
+        R = np.zeros((self.u.shape[0], self.u.shape[0])) if R is None else R
 
         # Guesses
         xguess = np.zeros(self.x.shape[0]) if xguess is None else xguess
@@ -523,6 +524,7 @@ class NMPC:
         self.sp = MX.sym('SP', self.c.shape[0])
         self.target = MX.sym('Target', self.u.shape[0])
         self.uprev = MX.sym('u_prev', self.u.shape[0])
+
         J = (self.c - self.sp).T @ Q @ (self.c - self.sp) + (self.u - self.target).T \
             @ R @ (self.u - self.target) + (self.u - self.uprev).T @ W @ (self.u - self.uprev)
         self.F = Function('F', [self.x, self.u, self.d, self.p, self.sp, self.target,
@@ -534,8 +536,11 @@ class NMPC:
             spk = self.sp
             targetk = self.target
         else:
-            spk = MX.sym('SP_k', 2 * (N + 1))
-            targetk = MX.sym('Target_k', 2 * N)
+            spk = MX.sym('SP_k', 2*(N+1))
+            targetk = MX.sym('Target_k', 2*N)
+
+        if not tgt:
+            targetk = MX.sym('Target_k', 0)
 
         # "Lift" initial conditions
         xk = MX.sym('x0', self.x.shape[0])  # first point at each interval
@@ -554,7 +559,7 @@ class NMPC:
         self.J = 0
 
         # Discretization
-        if self.opts['disc'] == 'collocation':
+        if self.disc == 'collocation':
             # NLP
             self.w += [xk]
             self.w0 += list(xguess)
@@ -618,8 +623,8 @@ class NMPC:
                     if not DRTO:  # check if the setpoints and targets are trajectories
                         fi = self.F(xki[i], uk, self.d,self.p, spk, targetk, uk_prev)
                     else:
-                        fi = self.F(xki[i], uk, self.d, self.p, vertcat(spk[k], spk[k + N + 1]),
-                                    vertcat(targetk[k], targetk[k + N]), uk_prev)
+                        fi = self.F(xki[i], uk, self.d, self.p, vertcat(spk[k], spk[k+N+1]),
+                                    vertcat(targetk[k], targetk[k+N]), uk_prev)
                     self.g += [self.dt * fi[0] - xc]  # model equality contraints reformulated
                     self.lbg += [np.zeros(self.x.shape[0])]
                     self.ubg += [np.zeros(self.x.shape[0])]
@@ -640,7 +645,7 @@ class NMPC:
                 # u(k-1)
                 uk_prev = copy.deepcopy(uk)
 
-        elif self.opts['disc'] == 'single_shooting':
+        elif self.disc == 'single_shooting':
             # NLP build
             xi = x0_sym
             for k in range(0, self.N):
@@ -661,13 +666,13 @@ class NMPC:
 
                 # Integrate till the end of the interval
                 fi = self.F(xi, uk, self.d, self.p, spk, targetk, uk_prev)
-                xi = fi['xf']
-                self.J += fi['qf']
+                xi = fi[0]
+                self.J += fi[1]
 
                 # Inequality constraint
                 self.g += [xi]
                 self.lbg += list(lbx)
-                self.ubw += list(ubx)
+                self.ubg += list(ubx)
 
                 # u(k-1)
                 uk_prev = copy.deepcopy(uk)
@@ -681,7 +686,7 @@ class NMPC:
         }  # nlp construction
 
         # Solver
-        self.solver = nlpsol('solver', 'ipopt', self.nlp, opts)  # nlp solver construction
+        self.solver = nlpsol('solver', 'ipopt', self.nlp, solver_opts)  # nlp solver construction
 
     def calc_actions(self, x0, u0, sp, target=[], d0=[], p0=[], ksim=None):
         """
@@ -709,7 +714,7 @@ class NMPC:
         wopt = sol['x'].full()
         self.w0 = copy.deepcopy(wopt)  # solution as guess for the next opt step
 
-        if self.opts['disc'] == 'collocation':
+        if self.disc == 'collocation':
             xopt = np.zeros((self.N + 1, self.x.shape[0]))
             uopt = np.zeros((self.N, self.u.shape[0]))
             for i in range(0, self.x.shape[0]):
@@ -726,14 +731,14 @@ class NMPC:
             return {
                 'x': xopt,
                 'u': uopt,
-                'U': uin
+                'uin': uin
             }
-        elif self.opts['disc'] == 'single_shooting':
+        elif self.disc == 'single_shooting':
             uopt = wopt
 
             # First control action
-            uin = uopt[0, :]
+            uin = uopt[:self.u.shape[0]]
             return {
                 'u': uopt,
-                'U': uin
+                'uin': uin
             }
