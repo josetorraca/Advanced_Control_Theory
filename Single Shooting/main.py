@@ -61,7 +61,6 @@ ubd = [ubCain, ubTin]
 N = 40
 M = 10
 Q = np.diag([1, 1e-3])
-R = np.diag([1, 1])
 W = np.diag([1e-5, 1e-8])
 lbdf = -50
 ubdf = 50
@@ -69,9 +68,8 @@ lbdQk = -10000
 ubdQk = 10000
 lbdu = [lbdf, lbdQk]
 ubdu = [ubdf, ubdQk]
-opts = {'disc': 'single_shooting'}
 
-nmpc = NMPC(dt=dt, N=N, M=M, Q=Q, R=R, W=W, x=x, u=u, c=c, d=d, p=p, dx=dx,
+nmpc = NMPC(dt=dt, N=N, M=M, Q=Q, W=W, x=x, u=u, c=c, d=d, p=p, dx=dx,
        xguess=xguess, uguess=uguess, lbx=lbx, ubx=ubx, lbu=lbu, ubu=ubu, 
        lbdu=lbdu, ubdu=ubdu, disc='single_shooting')
 
@@ -83,9 +81,9 @@ niter = math.ceil(tsim/dt)
 xf = [3.08275401, 0.52532486, 122.27127671, 77.75680223]
 uf = [120.04167236,  50000]
 dist = [4, 130]
-par_model = [1.287e12, 2]
-par_plant = [1.287e12*.95, 2*0.8]
-spsim = [1, 1]
+par_model = [1.287e12, 3.01]
+par_plant = [1.287e12*.95, 3.01*0.8]
+spsim = [0.5, 120]
 xhat = copy.deepcopy(xf)
 dhat = copy.deepcopy(dist[0])
 phat = copy.deepcopy(par_model)
