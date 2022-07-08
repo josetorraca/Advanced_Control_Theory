@@ -37,8 +37,8 @@ lbTk = 30
 ubTk = 200
 lbf = 10
 ubf = 400
-lbQk = 0
-ubQk = 85000
+lbQk = -8500
+ubQk = 0
 lbCain = 0.1
 ubCain = 6
 lbTin = 30
@@ -61,11 +61,11 @@ ubd = [ubCain, ubTin]
 N = 40
 M = 10
 Q = np.diag([1, 1e-3])
-W = np.diag([1e-5, 1e-8])
+W = np.diag([1e-5, 1e-6])
 lbdf = -50
 ubdf = 50
-lbdQk = -10000
-ubdQk = 10000
+lbdQk = -500
+ubdQk = 500
 lbdu = [lbdf, lbdQk]
 ubdu = [ubdf, ubdQk]
 
@@ -79,7 +79,7 @@ tsim = 2 #h
 niter = math.ceil(tsim/dt)
 
 xf = [3.08275401, 0.52532486, 122.27127671, 77.75680223]
-uf = [120.04167236,  50000]
+uf = [120.04167236,  -4000]
 dist = [4, 130]
 par_model = [1.287e12, 3.01]
 par_plant = [1.287e12*.95, 3.01*0.8]
@@ -128,10 +128,9 @@ for ksim in range(0, niter):
     #dest[t-1, :] = dhat
 
     # NMPC
-    ctrl = nmpc.calc_actions(ksim=ksim+1, x0=xhat, u0=uf, sp=spsim,
-                             d0=[dhat, dist[1]], p0=phat)
+    ctrl = nmpc.calc_actions(ksim=ksim+1, x0=xhat, u0=uf, sp=spsim, 
+                            d0=[dhat, dist[1]], p0=phat)
     uf = ctrl['uin']
-
     t += 1
     end = time.time()
     cpu_time += [end - start]
