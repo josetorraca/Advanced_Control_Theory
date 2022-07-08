@@ -21,7 +21,7 @@ Ar = 0.215 #jacket area (m2)
 Kw = 4032 #jacket heat transfer coefficient (kJ/h m2 K)
 V = 10 #reactor volume (L)
 mk = 5;
-#cpk = 2;
+cpk = 2;
 
 # States
 Ca = MX.sym('C_A',1) #yield of A (mol/L) 
