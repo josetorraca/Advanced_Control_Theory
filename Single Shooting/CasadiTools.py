@@ -666,7 +666,7 @@ class NMPC:
 
                 # Integrate till the end of the interval
                 fi = self.F(xi, uk, self.d, self.p, spk, targetk, uk_prev)
-                xi = fi[0]
+                xi += self.dt*fi[0]
                 self.J += fi[1]
 
                 # Inequality constraint
@@ -740,5 +740,281 @@ class NMPC:
             uin = uopt[:self.u.shape[0]]
             return {
                 'u': uopt,
-                'uin': uin
+                'u_in': uin
+            }
+
+
+class MHE:
+    """
+      This class creates an MHE using casadi symbolic framework
+      """
+
+    def __init__(self, dt, N, x, u, d, p, dx, Q, W=None, R=None, xguess=None,
+                 uguess=None, dguess=None, pguess=None, lbx=None, ubx=None,
+                 lbu=None, ubu=None, lbd=None, lbp=None, ubd=None, ubp=None,
+                 pol='legendre', m=3, solver_opts={}):
+
+        self.dt = dt
+        self.dx = dx
+        self.x = x
+        self.u = u
+        self.d = d
+        self.p = p
+        self.N = N
+        self.m = m
+        self.pol = pol
+
+        # State estimation
+        self.Q = Q
+        self.ymeas = MX.sym('y_meas', self.x.shape[0])
+        ymeask = MX.sym('y_meas_k', N, self.ymeas.shape[0])
+        xguess = self.x.shape[0]*[0] if xguess is None else xguess
+        lbx = list(-inf*np.ones(self.x.shape[0])) if lbx is None else lbx
+        ubx = list(+inf*np.ones(self.x.shape[0])) if ubx is None else ubx
+
+        # Parameter estimation?
+        if R:
+            self.R = R # parameter matrix
+            self.theta = vertcat(self.d, self.p) # disturbances + uncertain parameters
+            self.thetaref = MX.sym('theta_ref', self.theta.shape[0]) # reference
+            thetarefk = MX.sym('theta_ref_k', N, self.thetaref.shape[0])  # reference vector
+            dguess = self.d.shape[0]*[0] if dguess is None else dguess
+            pguess = self.p.shape[0]*[0] if pguess is None else pguess
+            thetaguess = dguess + pguess
+            lbd = list(-inf*np.ones(self.d.shape[0])) if lbd is None else lbd
+            lbp = list(-inf*np.ones(self.p.shape[0])) if lbp is None else lbp
+            ubd = list(+inf*np.ones(self.d.shape[0])) if ubd is None else ubd
+            ubp = list(+inf*np.ones(self.p.shape[0])) if ubp is None else ubp
+        else:
+            self.R = np.zeros((self.theta.shape[0], self.theta.shape[0]))
+            self.theta = MX.sym('theta', 0)
+            self.thetaref = MX.sym('theta_ref', 0)
+            thetaguess = []
+            lbd = []
+            ubd = []
+            lbp = []
+            ubp = []
+        lbtheta = lbd + lbp
+        ubtheta = ubd + ubp
+
+        # Input estimation?
+        if W:
+            self.W = W
+            self.unom = MX.sym('u_nom', self.u.shape[0])
+            unomk = MX.sym('u_nom_k', N, self.unom.shape[0])
+            uguess = self.u.shape[0]*[0] if uguess is None else uguess
+            lbu = list(-inf*np.ones(self.u.shape[0]) if lbu is None else lbu)
+            ubu = list(+inf*np.ones(self.u.shape[0]) if ubu is None else ubu)
+        else:
+            self.W = np.zeros((self.u.shape[0], self.u.shape[0]))
+            self.unom = MX.sym('u_nom', 0)
+            uguess = []
+            lbu = []
+            ubu = []
+
+        # Removing Nones inside vectors
+        if None in xguess: xguess = np.array([0 if v is None else v for v in xguess])
+        if None in uguess: uguess = np.array([0 if v is None else v for v in uguess])
+        if None in thetaguess: thetaguess = np.array([0 if v is None else v for v in thetaguess])
+        if None in lbx: lbx = np.array([-inf if v is None else v for v in lbx])
+        if None in lbu: lbu = np.array([-inf if v is None else v for v in lbu])
+        if None in ubx: ubx = np.array([+inf if v is None else v for v in ubx])
+        if None in ubu: ubu = np.array([+inf if v is None else v for v in ubu])
+
+        # Quadratic cost function
+        J = (self.x - self.ymeas).T @ self.Q @(self.x - self.ymeas) + \
+            (self.u - self.unom).T @ self.W @ (self.u - self.unom) + \
+            (self.theta - self.thetaref).T @ self.R @ (self.theta - self.thetaref)
+
+        # MHE model function
+        self.F = Function('F_MHE', [self.x, self.u, self.d, self.p, self.ymeas, self.unom, self.thetaref],
+                          [self.dx, J], ['x', 'u', 'd', 'p', 'y_meas', 'u_nom', 'theta_ref'], ['dx', 'J'])
+
+        # "Lift" initial conditions
+        xk = MX.sym('x0', self.x.shape[0])  # first state at each interval
+        x0_sym = MX.sym('x0_par', self.x.shape[0])  # initial state
+
+        # Empty NLP
+        self.w = []
+        self.w0 = []
+        self.lbw = []
+        self.ubw = []
+        self.g = []
+        self.lbg = []
+        self.ubg = []
+        self.J = 0
+
+        # NLP
+        self.w += [xk]
+        self.w0 += xguess
+        self.lbw += lbx
+        self.ubw = ubx
+        self.g += [xk - x0_sym]
+        self.lbg += self.dx.shape[0]*[0]
+        self.ubg += self.dx.shape[0]*[0]
+
+        # Polynomials
+        self.tau = np.array([0] + collocation_points(self.m, self.pol))
+        self.L = np.zeros((self.m + 1, 1))
+        self.Ldot = np.zeros((self.m + 1, self.m + 1))
+        self.Lint = self.L
+        for i in range(0, self.m + 1):
+            coeff = 1
+            for j in range(0, self.m + 1):
+                if j != i:
+                    coeff = np.convolve(coeff, [1, -self.tau[j]])/(self.tau[i] - self.tau[j])
+            self.L[i] = np.polyval(coeff, 1)
+            ldot = np.polyder(coeff)
+            for j in range(0, self.m + 1):
+                self.Ldot[i, j] = np.polyval(ldot, self.tau[j])
+            lint = np.polyint(coeff)
+            self.Lint[i] = np.polyval(lint, 1)
+
+        # NLP build
+        for k in range(0, self.N):
+            # State at collocation points
+            xki = []
+            for i in range(0, self.m):
+                xki.append(MX.sym('x_' + str(k + 1) + '_' + str(i + 1), self.x.shape[0]))
+                self.w += [xki[i]]
+                self.lbw += lbx
+                self.ubw += ubx
+                self.w0 += xguess
+
+            # uk and thetak as decision variables
+            uk = MX.sym('u_' + str(k + 1), self.unom.shape[0])
+            thetak = MX.sym('theta_k' + str(k + 1), self.thetaref.shape[0])
+            self.w += [uk, thetak]
+            self.lbw += lbu + lbtheta
+            self.ubw += ubu + ubtheta
+            self.w0 += uguess + thetaguess
+
+            # Loop over collocation points
+            xk_end = self.L[0]*xk
+            for i in range(0, self.m):
+                xk_end += self.L[i + 1]*xki[i]  # add contribution to the end state
+                xc = self.Ldot[0, i + 1]*xk  # expression for the state derivative at the collocation point
+                for j in range(0, m):
+                    xc += self.Ldot[j + 1, i + 1]*xki[j]
+                fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :], thetarefk[k, :])
+                self.g += [self.dt*fi[0] - xc]  # model equality constraints reformulated
+                self.lbg += self.x.shape[0]*[0]
+                self.ubg += self.x.shape[0]*[0]
+                self.J += self.dt*fi[1]*self.Lint[i + 1]  # add contribution to obj. quadrature function
+
+            # New NLP variable for state at end of interval
+            xk = MX.sym('x_' + str(k + 2), self.x.shape[0])
+            self.w += [xk]
+            self.lbw += lbx
+            self.ubw += ubx
+            self.w0 += xguess
+
+            # No shooting-gap constraint
+            self.g += [xk - xk_end]
+            self.lbg += self.x.shape[0] * [0]
+            self.ubg += self.x.shape[0] * [0]
+
+        # NLP construction
+        # NLP parameters
+        if self.R and self.W:
+            par = vertcat(x0_sym, ymeask, unomk, thetarefk)
+        elif self.R and not self.W:
+            par = vertcat(x0_sym, self.u, ymeask, thetarefk)
+        elif not self.R and self.W:
+            par = vertcat(x0_sym, self.d, self.p, ymeask, unomk)
+        else:
+            par = vertcat(x0_sym, self.u, self.d, self.p, ymeask)
+
+        # Dict
+        self.nlp = {
+            'x': vertcat(*self.w),
+            'f': self.J,
+            'g': vertcat(*self.g),
+            'p': par
+        }
+
+        # Solver
+        self.solver = nlpsol('solver', 'ipopt', self.nlp, solver_opts)  # nlp solver construction
+
+    def update(self, x0, ymeas, uf=[], df=[], pf=[], unom=[], thetaref=[], ksim=None):
+        """
+        Performs 1 estimation step for the MHE
+        """
+
+        # Solver parameters
+        if self.R and self.W:
+            par = vertcat(x0, ymeas, unom, thetaref)
+        elif self.R and not self.W:
+            par = vertcat(x0, uf, ymeas, thetaref)
+        elif not self.R and self.W:
+            par = vertcat(x0, df, pf, ymeas, unom)
+        else:
+            par = vertcat(x0, uf, df, pf, ymeas)
+
+        # Solver run
+        sol = self.solver(x0=vertcat(*self.w0), p=par,
+                          lbx=vertcat(*self.lbw), ubx=vertcat(*self.ubw),
+                          lbg=vertcat(*self.lbg), ubg=vertcat(*self.ubg))
+        flag = self.solver.stats()
+
+        # Check convergence
+        if ksim != None:
+            if flag['return_status'] != 'Solve_Succeeded':
+                print('Time step ' + str(ksim) + ': MHE solver did not converge.')
+            else:
+                print('Time step ' + str(ksim) + ': MHE optimal solution found.')
+        else:
+            if flag['return_status'] != 'Solve_Succeeded':
+                print('Time step: MHE solver did not converge.')
+            else:
+                print('Time step: MHE optimal solution found.')
+
+        # Solution
+        wopt = sol['x'].full()
+
+        # Solution as guess for the next opt step
+        self.w0 = copy.deepcopy(wopt)
+
+        # Optimal states
+        xopt = np.zeros((self.N + 1, self.x.shape[0]))
+        for i in range(0, self.x.shape[0]):
+            xopt[:, i] = wopt[i::
+                              self.x.shape[0] +
+                              self.u.shape[0] +
+                              self.theta.shape[0] +
+                              self.x.shape[0]*self.m].reshape(-1)
+        # Optimal inputs
+        uopt = np.zeros((self.N, self.u.shape[0])) if self.W else None
+        for i in range(0, self.unom.shape[0]):
+            uopt[:, i] = wopt[self.x.shape[0] +
+                              self.x.shape[0]*self.m +
+                              i::
+                              self.x.shape[0] +
+                              self.x.shape[0]*self.m +
+                              self.u.shape[0]].reshape(-1)
+
+        # Optimal parameters
+        thetaopt = np.zeros((self.N, self.theta.shape[0])) if self.R else None
+        for i in range(0, self.thetaref.shape[0]):
+            thetaopt[:, i] = wopt[self.x.shape[0] +
+                                  self.x.shape[0]*self.m +
+                                  self.u.shape[0] +
+                                  i::
+                                  self.x.shape[0] +
+                                  self.x.shape[0]*self.m +
+                                  self.u.shape[0] +
+                                  self.theta.shape[0]].reshape(-1)
+
+            # Estimates
+            xhat = xopt[-1, :]
+            uhat = uopt[-1, :]
+            thetahat = thetaopt[-1, :]
+
+            return {
+                'x': xopt,
+                'u': uopt,
+                'theta': thetaopt,
+                'x_hat': xhat,
+                'u_hat': uhat,
+                'theta_hat': thetahat
             }

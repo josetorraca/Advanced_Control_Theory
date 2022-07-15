@@ -21,7 +21,7 @@ Ar = 0.215 #jacket area (m2)
 Kw = 4032 #jacket heat transfer coefficient (kJ/h m2 K)
 V = 10 #reactor volume (L)
 mk = 5;
-cpk = 2;
+#cpk = 2;
 
 # States
 Ca = MX.sym('C_A',1) #yield of A (mol/L) 
@@ -54,5 +54,8 @@ dCadt = f*(Cain - Ca) - Ca*k10*exp(-E1/(T + 273.15)) - Ca**2*k30*exp(-E3/(T + 27
 dCbdt = -f*Cb + Ca*k10*exp(-E1/(T + 273.15)) - Cb*k20*exp(-E2/(T + 273.15))
 dTdt = f*(Tin - T) + (Kw*Ar*(Tk - T)/V + (Ca*(-deltaH1)*k10*exp(-E1/(T + 273.15))) + \
        (Cb*(-deltaH2)*k20*exp(-E2/(T + 273.15))) + (Ca**2*(-deltaH3)*k30*exp(-E3/(T + 273.15))))/(rho*cp)
-dTkdt = (Qk + Kw*Ar*(T - Tk))/mk/cpk;
+dTkdt = (Qk + Kw*Ar*(T - Tk))/mk/cp;
 dx = vertcat(dCadt, dCbdt, dTdt, dTkdt)
+
+# Cost function
+J = - (Cb/(Cain-Ca) + Cb/Cain - 5e-4*Tk)

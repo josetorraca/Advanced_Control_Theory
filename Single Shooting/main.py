@@ -22,9 +22,15 @@ Cbguess = 1.0787
 Tguess = 144.2363
 fguess = 100
 Tkguess = 150
-Qkguess = 50000
+Qkguess = -4000
+Cainguess = 5
+Tinguess = 130
+k01guess = 1.287e12
+cpguess = 2
 xguess = [Caguess, Cbguess, Tguess, Tkguess]
 uguess = [fguess, Qkguess]
+dguess = [Cainguess, Tinguess]
+pguess = [k01guess, cpguess]
 
 # Bounds
 lbCa = 0.1
@@ -43,19 +49,26 @@ lbCain = 0.1
 ubCain = 6
 lbTin = 30
 ubTin = 200
+lbk01 = .5*k01guess
+ubk01 = 1.5*k01guess
+lbcp = .5*cpguess
+ubcp = 1.5*cpguess
 lbx = [lbCa, lbCb, lbT, lbTk]
 ubx = [ubCa, ubCb, ubT, ubTk]
 lbu = [lbf, lbQk]
 ubu = [ubf, ubQk]
 lbd = [lbCain, lbTin]
 ubd = [ubCain, ubTin]
+lbp = [lbk01, lbcp]
+ubp = [ubk01, ubcp]
 
-# AEKF
-#P0 = np.diag([1e3, 1e3, 1e3, 1e3, 1e3])
-#Q = np.diag([3e-2, 5e-2, 1e1, 1e1, 1e2])*1e-4
-#R = np.diag([3e-2, 5e-3, 8e-1])
+# MHE
+Q = np.diag([1e1, 1e1, 1e2, 1e2])*1e-4
+R = np.diag([3e-2, 5e-3, 8e-1, 5e-3])
 
-#aekf = AEKF(dt=dt, P0=P0, Q=Q, R=R, x=x, u=u, y=y, dx=dx, theta=d)
+mhe = MHE(dt=dt, N=N, Q=Q, R=R, x=x, u=u, d=d, p=p, dx=dx, xguess=xguess,
+          uguess=uguess, dguess=dguess, pguess=pguess, lbx=lbx, ubx=ubx,
+          lbu=lbu, ubu=ubu, lbd=lbd, ubd=ubd, lbp=lbp, ubp=ubp)
 
 # NMPC
 N = 40
@@ -64,8 +77,8 @@ Q = np.diag([1, 1e-3])
 W = np.diag([1e-5, 1e-6])
 lbdf = -50
 ubdf = 50
-lbdQk = -500
-ubdQk = 500
+lbdQk = -50
+ubdQk = 50
 lbdu = [lbdf, lbdQk]
 ubdu = [ubdf, ubdQk]
 
@@ -94,6 +107,10 @@ psim = np.zeros([niter, 2])
 xest = np.zeros([niter, 4])
 dest = np.zeros([niter, 1])
 pest = np.zeros([niter, 2])
+ymeassim = np.zeros([niter, 4])
+d1meassim = np.zeros([niter, 1])
+d2hat = dhat[1]*N
+phat = phat*N
 cpu_time = []
 bar = IncrementalBar('Simulation in progress', max=niter) #progress bar
 
@@ -119,13 +136,17 @@ for ksim in range(0, niter):
     usim[t-1, :] = sim['u']
     dsim[t-1, :] = sim['d']
     psim[t-1, :] = sim['p']
+    ymeassim[t-1,:] = ymeas
+    d1meassim[t-1] = d1meas
+    (self, x0, ymeas, uf=[], df=[], pf=[], unom=[], thetaref=[], ksim=None):
 
-    # AEKF
-    #est = aekf.updatestate(xkhat=vertcat(xhat, dhat), uf=uf, ymeas=ymeas)
-    #xhat = est['x']
+    # MHE
+    est = mhe.update(ksim=ksim+1, x0=xhat, uf=uf, ymeas=ymeassim[-N, :],
+                     thetaref=vertcat(d1meassim[-N, :], d2hat[-N, :], phat))
+    #xhat = est['x_hat']
     #dhat = est['theta']
     #xest[t-1, :] = xhat
-    #dest[t-1, :] = dhat
+    #est[t-1, :] = dhat
 
     # NMPC
     ctrl = nmpc.calc_actions(ksim=ksim+1, x0=xhat, u0=uf, sp=spsim, 
