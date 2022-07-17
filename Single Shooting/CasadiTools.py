@@ -896,7 +896,14 @@ class MHE:
                 xc = self.Ldot[0, i + 1]*xk  # expression for the state derivative at the collocation point
                 for j in range(0, m):
                     xc += self.Ldot[j + 1, i + 1]*xki[j]
-                fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :], thetarefk[k, :])
+                if self.W and self.R:
+                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :], thetarefk[k, :])
+                elif self.W and not self.R:
+                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :])
+                elif not self.W and self.R:
+                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], thetarefk[k, :])
+                else:
+                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :])
                 self.g += [self.dt*fi[0] - xc]  # model equality constraints reformulated
                 self.lbg += self.x.shape[0]*[0]
                 self.ubg += self.x.shape[0]*[0]
