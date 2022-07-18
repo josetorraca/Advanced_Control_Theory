@@ -773,7 +773,7 @@ class MHE:
         ubx = list(+inf*np.ones(self.x.shape[0])) if ubx is None else ubx
 
         # Parameter estimation?
-        if R:
+        if R.all:
             self.R = R # parameter matrix
             self.theta = vertcat(self.d, self.p) # disturbances + uncertain parameters
             self.thetaref = MX.sym('theta_ref', self.theta.shape[0]) # reference
@@ -823,12 +823,11 @@ class MHE:
 
         # Quadratic cost function
         J = (self.x - self.ymeas).T @ self.Q @(self.x - self.ymeas) + \
-            (self.u - self.unom).T @ self.W @ (self.u - self.unom) + \
             (self.theta - self.thetaref).T @ self.R @ (self.theta - self.thetaref)
 
         # MHE model function
-        self.F = Function('F_MHE', [self.x, self.u, self.d, self.p, self.ymeas, self.unom, self.thetaref],
-                          [self.dx, J], ['x', 'u', 'd', 'p', 'y_meas', 'u_nom', 'theta_ref'], ['dx', 'J'])
+        self.F = Function('F_MHE', [self.x, self.u, self.d, self.p, self.ymeas, self.thetaref],
+                          [self.dx, J], ['x', 'u', 'd', 'p', 'y_meas', 'theta_ref'], ['dx', 'J'])
 
         # "Lift" initial conditions
         xk = MX.sym('x0', self.x.shape[0])  # first state at each interval
@@ -881,13 +880,12 @@ class MHE:
                 self.ubw += ubx
                 self.w0 += xguess
 
-            # uk and thetak as decision variables
-            uk = MX.sym('u_' + str(k + 1), self.unom.shape[0])
+            # xk and thetak as decision variables
             thetak = MX.sym('theta_k' + str(k + 1), self.thetaref.shape[0])
-            self.w += [uk, thetak]
-            self.lbw += lbu + lbtheta
-            self.ubw += ubu + ubtheta
-            self.w0 += uguess + thetaguess
+            self.w += [thetak]
+            self.lbw += lbtheta
+            self.ubw +=  ubtheta
+            self.w0 += thetaguess
 
             # Loop over collocation points
             xk_end = self.L[0]*xk
@@ -896,14 +894,7 @@ class MHE:
                 xc = self.Ldot[0, i + 1]*xk  # expression for the state derivative at the collocation point
                 for j in range(0, m):
                     xc += self.Ldot[j + 1, i + 1]*xki[j]
-                if self.W and self.R:
-                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :], thetarefk[k, :])
-                elif self.W and not self.R:
-                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], unomk[k, :])
-                elif not self.W and self.R:
-                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :], thetarefk[k, :])
-                else:
-                    fi = self.F(xki[i], uk, self.d, self.p, ymeask[k, :])
+                    fi = self.F(xki[i], self.u, self.d, self.p, ymeask[k, :], thetarefk[k, :])
                 self.g += [self.dt*fi[0] - xc]  # model equality constraints reformulated
                 self.lbg += self.x.shape[0]*[0]
                 self.ubg += self.x.shape[0]*[0]
