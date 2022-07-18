@@ -1,4 +1,3 @@
-
 from VdV4x2 import *
 from CasadiTools import *
 from progress.bar import IncrementalBar
@@ -65,6 +64,7 @@ ubp = [ubk01, ubcp]
 # MHE
 Q = np.diag([1e1, 1e1, 1e2, 1e2])*1e-4
 R = np.diag([3e-2, 5e-3, 8e-1, 5e-3])
+N = 40
 
 mhe = MHE(dt=dt, N=N, Q=Q, R=R, x=x, u=u, d=d, p=p, dx=dx, xguess=xguess,
           uguess=uguess, dguess=dguess, pguess=pguess, lbx=lbx, ubx=ubx,
@@ -223,4 +223,3 @@ ax4[1].set_xlabel('time [h]')
 ax4[1].legend()
 
 plt.show()
-
