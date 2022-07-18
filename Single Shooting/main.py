@@ -10,7 +10,7 @@ import math
 process = ODEModel(dt=dt, x=x, y=y, u=u, dx=dx, d=d, p=p) #process object
 process.get_equations(intg='idas')
 
-#SS optimizer
+# SS optimizer opts
 opts = {
     'warn_initial_bounds': False, 'print_time': False, 
     'ipopt': {'print_level': 1}
@@ -138,19 +138,25 @@ for ksim in range(0, niter):
     psim[t-1, :] = sim['p']
     ymeassim[t-1,:] = ymeas
     d1meassim[t-1] = d1meas
-    (self, x0, ymeas, uf=[], df=[], pf=[], unom=[], thetaref=[], ksim=None):
 
     # MHE
     est = mhe.update(ksim=ksim+1, x0=xhat, uf=uf, ymeas=ymeassim[-N, :],
-                     thetaref=vertcat(d1meassim[-N, :], d2hat[-N, :], phat))
-    #xhat = est['x_hat']
-    #dhat = est['theta']
-    #xest[t-1, :] = xhat
-    #est[t-1, :] = dhat
+                     thetaref=vertcat(d1meassim[-N, :], d2hat[-N, :], p1hat, p2hat))
+
+    d1hat = list(est['theta_opt'][0::4])
+    d2hat = list(est['theta_opt'][1::4])
+    p1hat = list(est['theta_opt'][2::4])
+    p2hat = list(est['theta_opt'][3::4])
+    d1hat_ = list(d1hat[-1])
+    d2hat_ = list(d2hat[-1])
+    p1hat_ = list(p1hat[-1])
+    p2hat_ = list(p2hat[-1])
+    xest[t-1, :] = est['x_hat']
+    thetaest[t-1, :] = est['theta_hat']
 
     # NMPC
     ctrl = nmpc.calc_actions(ksim=ksim+1, x0=xhat, u0=uf, sp=spsim, 
-                            d0=[dhat, dist[1]], p0=phat)
+                            d0=d1hat_+d2hat_, p0=p1hat_+p2hat_)
     uf = ctrl['uin']
     t += 1
     end = time.time()
